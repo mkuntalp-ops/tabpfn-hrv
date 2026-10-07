@@ -1,0 +1,18 @@
+[
+  {
+    "Target_Cohort": "UCDDB",
+    "N_Subjects": 6,
+    "Total_Resamples": 1000,
+    "Valid_Resamples": 1000,
+    "Invalid_Resamples": 0,
+    "Invalid_Reasons_Sample": []
+  },
+  {
+    "Target_Cohort": "Apnea-ECG",
+    "N_Subjects": 33,
+    "Total_Resamples": 1000,
+    "Valid_Resamples": 1000,
+    "Invalid_Resamples": 0,
+    "Invalid_Reasons_Sample": []
+  }
+]
