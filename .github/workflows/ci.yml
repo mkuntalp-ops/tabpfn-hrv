@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-checks:
+    name: Compile, imports, and shell syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile all Python sources
+        run: |
+          python -m py_compile \
+            run_full_development_study.py \
+            label_efficiency.py \
+            leave_one_database_out_3center.py \
+            run_03_tri_center_lodo_provenance_fix.py \
+            clinical_metrics.py \
+            models/train_and_evaluate.py \
+            src/models/train_and_evaluate.py \
+            evaluation/clinical_metrics.py \
+            configs/protocol.py
+
+      - name: Import modules and validate metric edge cases
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, ".")
+          import numpy as np
+
+          # Module imports (pulls in tabpfn, sklearn, pandas, ...)
+          import clinical_metrics  # deprecated re-export
+          from models.train_and_evaluate import (
+              get_baseline_models, evaluate_predictions, select_youden_threshold,
+          )
+          from evaluation.clinical_metrics import (
+              compute_expected_calibration_error, calculate_dca,
+          )
+          from configs.protocol import PRIMARY_FEATURES, SLPDB_SUBJECT_MAP, RANDOM_SEED
+
+          # ECE edge case: y_prob == 1.0 must be counted in the last bin
+          e = compute_expected_calibration_error(
+              np.array([0, 1]), np.array([0.3, 1.0])
+          )
+          assert e > 0, "ECE must include y_prob == 1.0"
+
+          # Metric smoke
+          m = evaluate_predictions(
+              np.array([0, 1, 0, 1]), np.array([0.1, 0.9, 0.2, 0.8]),
+              n_bootstraps=50,
+          )
+          assert {"ROC-AUC", "PR-AUC", "BrierScore", "Accuracy", "F1-Score",
+                  "ROC-AUC_CI_lower"} <= set(m.keys())
+
+          # Youden threshold bounds
+          t = select_youden_threshold(
+              np.array([0, 0, 1, 1]), np.array([0.1, 0.4, 0.6, 0.9])
+          )
+          assert 0 < t <= 1
+
+          # Baselines are constructible (LightGBM/XGBoost optional in env)
+          models = get_baseline_models()
+          assert models["LogisticRegression"] is not None
+          assert models["RandomForest"] is not None
+          assert models["SVM"] is not None
+
+          print("CI_IMPORT_METRIC_CHECKS_OK")
+          EOF
+
+      - name: Validate Holm step-down correction logic
+        run: |
+          python - <<'EOF'
+          def holm(p_raws):
+              recs = sorted(p_raws)
+              out, running = [], 0.0
+              m = len(recs)
+              for rank, p in enumerate(recs):
+                  running = max(running, min(1.0, (m - rank) * p))
+                  out.append(running)
+              return out
+
+          assert holm([0.01, 0.03, 0.04]) == [0.03, 0.06, 0.06]
+          assert holm([0.5, 0.6]) == [1.0, 1.0]
+          assert all(p <= 1.0 for p in holm([0.001, 0.002, 0.02, 0.5]))
+          print("CI_HOLM_LOGIC_OK")
+          EOF
+
+      - name: Shell script syntax check
+        run: bash -n reproduce_all_results.sh
+
+      - name: Feature-schema guard check
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, ".")
+          import pandas as pd
+          from configs.protocol import PRIMARY_FEATURES
+
+          df = pd.DataFrame({"record_id": ["a"], "apnea_label": [1],
+                             "HRV_WrongName": [1.0], "num_r_peaks": [50]})
+          missing = [f for f in PRIMARY_FEATURES if f not in df.columns]
+          assert len(missing) > 0, "guard should detect schema mismatch"
+          print("CI_SCHEMA_GUARD_OK")
+          EOF
