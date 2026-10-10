@@ -1,6 +1,6 @@
 """
 Three-Center Leave-One-Database-Out (LODO) Multi-Cohort Benchmark
-Evaluates TabPFN v2 vs Baselines across three international clinical sleep cohorts:
+Evaluates TabPFN vs Baselines across three international clinical sleep cohorts:
 1. Center 1: PhysioNet Apnea-ECG (Philipps University Marburg, Germany; 100 Hz single-lead ECG)
 2. Center 2: MIT-BIH Polysomnographic Database (slpdb, Beth Israel Hospital, Boston; 250 Hz multi-lead ECG)
 3. Center 3: UCD Sleep Apnea Database (ucddb, St. Vincent's University Hospital Dublin; 128 Hz multi-channel PSG ECG)

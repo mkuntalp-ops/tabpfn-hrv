@@ -53,10 +53,14 @@ subjects) to avoid optimistic self-tuning.
 | `label_efficiency.py` | Low-N training efficiency benchmark |
 | `clinical_metrics.py` (root) | Legacy copy of the calibration module (kept for reference) |
 | `development_severity_metrics.csv` | Development cohort severity-tier metrics |
-| `lodo_patient_clustered_metrics.csv` | Tri-center LODO metrics with patient-clustered 95% CIs |
+| `lodo_patient_clustered_metrics.csv` | Tri-center LODO metrics with patient-clustered 95% CIs (SLPDB N=1 CI columns are empty; see Uncertainty_Status) |
 | `lodo_paired_differences.csv` | Paired few-shot vs zero-shot TabPFN deltas |
-| `lodo_bootstrap_resamples_manifest.json` | Bootstrap resample validity manifest |
 | `metrics_errata_log.md` | Metric reproducibility errata (float32/float64, terminology) |
+
+> Note: a Holm-corrected multi-comparison table (each model vs TabPFN on identical
+> patient-clustered bootstrap resamples) is emitted by `run_03_tri_center_lodo_provenance_fix.py`
+> to `metrics/lodo_multiple_comparison_holm.csv`.
+| `lodo_bootstrap_resamples_manifest.json` | Bootstrap resample validity manifest |
 
 ## Data access
 
@@ -77,6 +81,19 @@ data/processed/hrv_features_ucddb.parquet
 The exact HRV feature extraction pipeline (R-peak detection, artifact filtering,
 feature definitions) must be documented in the manuscript methods; features used by
 the tri-center run are listed in `configs/protocol.py::PRIMARY_FEATURES`.
+
+## Interpreting results (framing for the manuscript)
+
+- Checked-in summary CSVs were produced by an earlier pipeline revision with a
+  preprocessing leakage defect; regenerate all numbers with the fixed scripts
+  before resubmission.
+- The few-shot vs zero-shot TabPFN paired deltas are **not significant** (clustered
+  95% CIs cross zero in every cohort), and the external test sets are small
+  (UCDDB: 6 held-out subjects; SLPDB: 1 held-out subject, CIs unestimable).
+  Claims should therefore be framed as **exploratory / hypothesis-generating**.
+- SLPDB inter-subject CIs are mathematically unestimable with a single test
+  subject; the corresponding CI columns are left empty and the reason recorded
+  in `Uncertainty_Status`.
 
 ## Installation and running
 

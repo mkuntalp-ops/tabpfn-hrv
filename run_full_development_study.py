@@ -1,5 +1,5 @@
 """
-Full Development Cohort Benchmark: TabPFN v2 vs Baselines (All 35 Apnea-ECG Records)
+Full Development Cohort Benchmark: TabPFN vs Baselines (All 35 Apnea-ECG Records)
 Evaluates:
 1. 5-Fold Patient-Independent GroupKFold Cross-Validation (TRIPOD+AI compliant)
 2. Segment-level discrimination (ROC-AUC, PR-AUC, Accuracy, F1)
