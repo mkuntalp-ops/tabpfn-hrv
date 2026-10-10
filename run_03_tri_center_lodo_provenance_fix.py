@@ -89,6 +89,16 @@ def run():
         cohort_dfs = {}
         for name, p in DATA_PATHS.items():
             df_c = pd.read_parquet(p)
+            missing_feats = [f for f in PRIMARY_FEATURES if f not in df_c.columns]
+            if missing_feats:
+                available = [c for c in df_c.columns if c.startswith("HRV_") or c == "num_r_peaks"]
+                log_print(f"[!] PRIMARY_FEATURES mismatch in {name}: missing {missing_feats}")
+                log_print(f"    Available candidate features in {name}: {available}")
+                raise AssertionError(
+                    f"PRIMARY_FEATURES in configs/protocol.py is not aligned with the data schema of {name}. "
+                    f"Missing: {missing_feats}. Update configs/protocol.py::PRIMARY_FEATURES to match "
+                    f"the feature set of the run that produced the reference outputs."
+                )
             if "subject_id" not in df_c.columns:
                 if name == "SLPDB":
                     df_c["subject_id"] = df_c["record_id"].map(SLPDB_SUBJECT_MAP)

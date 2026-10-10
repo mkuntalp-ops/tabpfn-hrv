@@ -56,6 +56,8 @@ subjects) to avoid optimistic self-tuning.
 | `lodo_patient_clustered_metrics.csv` | Tri-center LODO metrics with patient-clustered 95% CIs (SLPDB N=1 CI columns are empty; see Uncertainty_Status) |
 | `lodo_paired_differences.csv` | Paired few-shot vs zero-shot TabPFN deltas |
 | `metrics_errata_log.md` | Metric reproducibility errata (float32/float64, terminology) |
+| `REVISION_NOTES.md` | Manuscript revision checklist: framing, statistics, and methods changes for resubmission |
+| `reproduce_all_results.sh` | One-command regeneration of all study outputs (pre-flight checks included) |
 
 > Note: a Holm-corrected multi-comparison table (each model vs TabPFN on identical
 > patient-clustered bootstrap resamples) is emitted by `run_03_tri_center_lodo_provenance_fix.py`
@@ -99,12 +101,22 @@ the tri-center run are listed in `configs/protocol.py::PRIMARY_FEATURES`.
 
 ```bash
 pip install -r requirements.txt
+bash reproduce_all_results.sh   # runs all four studies with pre-flight checks
+```
 
+Or run the studies individually:
+
+```bash
 python run_full_development_study.py
 python label_efficiency.py
 python leave_one_database_out_3center.py
 python run_03_tri_center_lodo_provenance_fix.py
 ```
+
+`run_03` verifies at load time that `configs/protocol.py::PRIMARY_FEATURES`
+matches the actual data schema and aborts with the list of usable candidate
+columns on mismatch — align the config with the run that produced any
+reference outputs before reproducing them.
 
 The provenance-fixed run expects a local TabPFN checkpoint; set its path in
 `configs/protocol.py::TABPFN_CHECKPOINT_PATH`. The checkpoint is not redistributed.
