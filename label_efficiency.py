@@ -100,8 +100,19 @@ def run_label_efficiency_benchmark(
                 if hasattr(clf, "predict_proba"):
                     probs = clf.predict_proba(X_test_scaled)[:, 1]
                 else:
-                    probs = clf.decision_function(X_test_scaled)
-                    probs = (probs - probs.min()) / (probs.max() - probs.min())
+                    # Only rank-based metrics (ROC-AUC) are valid for decision-function scores;
+                    # Brier scores from min-max normalized scores are not calibrated probabilities
+                    raw = clf.decision_function(X_test_scaled)
+                    probs = (raw - raw.min()) / (raw.max() - raw.min())
+                    records.append({
+                        "Sample_Size": n,
+                        "Seed": seed,
+                        "Model": name,
+                        "ROC-AUC": roc_auc_score(y_test, probs),
+                        "BrierScore": np.nan,
+                        "Brier_Valid": False
+                    })
+                    continue
 
                 auc = roc_auc_score(y_test, probs)
                 brier = brier_score_loss(y_test, probs)
@@ -111,7 +122,8 @@ def run_label_efficiency_benchmark(
                     "Seed": seed,
                     "Model": name,
                     "ROC-AUC": auc,
-                    "BrierScore": brier
+                    "BrierScore": brier,
+                    "Brier_Valid": True
                 })
 
             try:
