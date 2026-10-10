@@ -58,6 +58,7 @@ subjects) to avoid optimistic self-tuning.
 | `metrics_errata_log.md` | Metric reproducibility errata (float32/float64, terminology) |
 | `REVISION_NOTES.md` | Manuscript revision checklist: framing, statistics, and methods changes for resubmission |
 | `reproduce_all_results.sh` | One-command regeneration of all study outputs (pre-flight checks included) |
+| `generate_manuscript_tables.py` | Builds publication-ready tables (CSV + Markdown) from regenerated outputs into `results/manuscript_tables/` |
 
 > Note: a Holm-corrected multi-comparison table (each model vs TabPFN on identical
 > patient-clustered bootstrap resamples) is emitted by `run_03_tri_center_lodo_provenance_fix.py`

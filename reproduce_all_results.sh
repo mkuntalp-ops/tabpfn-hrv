@@ -11,7 +11,7 @@
 # Usage:  bash reproduce_all_results.sh
 set -euo pipefail
 
-echo "=== [0/4] Pre-flight checks ==="
+echo "=== [0/5] Pre-flight checks ==="
 python3 - <<'EOF'
 import sys
 from pathlib import Path
@@ -44,9 +44,13 @@ python3 leave_one_database_out_3center.py
 echo "=== [4/4] Provenance-fixed tri-center LODO + clustered bootstrap + Holm MC ==="
 python3 run_03_tri_center_lodo_provenance_fix.py
 
+echo "=== [5/5] Manuscript tables ==="
+python3 generate_manuscript_tables.py --results-root results
+
 echo ""
 echo "All outputs regenerated. Key result directories:"
 echo "  results/full_development_study/    (development cohort)"
 echo "  results/label_efficiency/          (low-N efficiency)"
 echo "  results/three_center_lodo/         (LODO + transfer matrix)"
 echo "  results/runs/run_20261006_lodo_provenance_fix/  (clustered bootstrap, Holm MC)"
+echo "  results/manuscript_tables/          (publication-ready tables, CSV + Markdown)"
