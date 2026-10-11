@@ -56,7 +56,9 @@ subjects) to avoid optimistic self-tuning.
 | `lodo_patient_clustered_metrics.csv` | Tri-center LODO metrics with patient-clustered 95% CIs (SLPDB N=1 CI columns are empty; see Uncertainty_Status) |
 | `lodo_paired_differences.csv` | Paired few-shot vs zero-shot TabPFN deltas |
 | `metrics_errata_log.md` | Metric reproducibility errata (float32/float64, terminology) |
-| `REVISION_NOTES.md` | Manuscript revision checklist: framing, statistics, and methods changes for resubmission |
+| `REVISION_NOTES.md` | Letter-format conversion guide: why letter fits, structure, word budget, table selection, target journals |
+| `LETTER_DRAFT.md` | Research letter draft skeleton (Turkish guidance, English manuscript) with number placeholders |
+| `RESPONSE_TO_REVIEWERS.md` | Reviewer-response draft (kept in case a future submission reaches peer review) |
 | `reproduce_all_results.sh` | One-command regeneration of all study outputs (pre-flight checks included) |
 | `generate_manuscript_tables.py` | Builds publication-ready tables (CSV + Markdown) from regenerated outputs into `results/manuscript_tables/` |
 

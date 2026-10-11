@@ -1,93 +1,87 @@
-# Revision Notes — Framing the Manuscript for Resubmission
+# Revision Notes — Converting the Manuscript to a Letter / Short Communication
 
-This document translates the code review findings into concrete manuscript
-changes. Use it as a checklist when revising the rejected submission.
+Desk-reject (editör değerlendirmesi, hakem süreci olmadan) tipik olarak
+"etki/katkı ile format uyuşmuyor" mesajıdır. Bu çalışmanın verisi tam
+makale iddialarını taşımıyor (bkz. aşağıdaki güç tablosu), ancak dürüst
+istatistiğiyle **letter / short communication** formatına çok iyi oturur.
 
-## 1. Claims that the current data cannot support
+## Neden letter
 
-The committed results (LODO patient-clustered bootstrap) show:
+| Tam makale gereksinimi | Çalışmanın durumu |
+|---|---|
+| Güçlü dış doğrulama | UCDDB: 6 held-out hasta; SLPDB: 1 hasta (CI hesaplanamaz) |
+| Anlamlı ana sonuç | Tüm few-shot vs zero-shot deltalarının CI'ları sıfırı kapsıyor |
+| Yöntemsel novelti | Klasik HRV öznitelikleri + bilinen veri seti + mevcut modele (TabPFN) uygulama |
+| Çoklu kohort iddiası | Fiilen tek güçlü kohort (Apnea-ECG, 33 dış hasta) |
 
-- **Few-shot adaptation provides no significant benefit.** Every paired
-  few-shot minus zero-shot TabPFN delta has a 95% CI crossing zero
-  (`lodo_paired_differences.csv`), in every cohort.
-- **External test sets are underpowered.** UCDDB held-out evaluation uses
-  6 subjects (ROC-AUC CI spans roughly 0.50–0.85); SLPDB has a single
-  held-out subject, making inter-subject CIs mathematically unestimable.
-- Consequently, any claim of the form "TabPFN few-shot adaptation improves
-  external performance" or "multi-center validation demonstrates
-  generalization" is not supported.
+Letter formatının çalışmaya katkısı:
+- Tek ana soru taşınır: *"TabPFN, tek kanallı ECG-HRV'den apne tespitinde
+  az etiketli ve kohortlar arası geçiş koşullarında klasik ML ile
+  karşılaştırılabilir mi?"*
+- Hasta-kümeli CI + Holm düzeltmesi letter literatüründe nadir görülen
+  bir istatistik sağlamlığıdır → güç tarafı
+- "Exploratory" çerçevesi letter'da doğal durur; tam makalede savunulması
+  zordu
 
-**Required rewording (Abstract / Results / Discussion):**
-- Replace superiority claims with neutral statements of point estimates
-  with their clustered CIs.
-- Add an explicit *Exploratory / hypothesis-generating* framing sentence in
-  the Abstract and at the start of the Discussion.
-- In the Limitations section, state: single effectively-powered external
-  cohort (Apnea-ECG, 33 held-out subjects), 6-subject UCDDB subset,
-  1-subject SLPDB subset, and that no few-shot improvement reached
-  significance.
+## Letter yapısı ve kelime bütçesi (hedef ~1200–1500 kelime)
 
-## 2. Corrections that change previously reported numbers
+| Bölüm | Bütçe | İçerik |
+|---|---|---|
+| Başlık | — | "…: a multi-database exploratory evaluation" ifadesi başlıkta |
+| Abstract | 100–150 | Tek soru, ana nokta tahminleri (CI ile), non-significant few-shot dürüstçe |
+| Giriş | 200–250 | Klinik motivasyon (OSA prevalansı, tek kanallı ECG potansiyeli), boşluk (az etiket/dış kohort), amaç |
+| Yöntem | 300–400 | Veri setleri (3 kohort), 9 HRV özniteliği, GroupKFold + LODO, modeller (seed'ler sabit), ön işlem leakage yasağı, hasta-kümeli bootstrap + Holm. Kod erişim cümlesi (GitHub repo) |
+| Sonuçlar | 300–400 | Tablo 1 (LODO, CI'lı) ana sonuç; development GroupKFold tek cümle; few-shot "exploratory, non-significant" |
+| Tartışma | 250–350 | Ana bulgu (karşılaştırılabilirlik), güç sınırları (6/1 hasta), klinik yorum, gelecek çalışma |
+| Tablolar/Figürler | 1–2 tablo | generate_manuscript_tables.py çıktılarından seçim (aşağıda) |
 
-The following defects were fixed in the analysis code; **all previously
-reported numbers must be regenerated** with `bash reproduce_all_results.sh`
-before resubmission:
+## Hangi tablolar letter'a girer
 
-1. **Preprocessing leakage** (affects all previously reported metrics):
-   `SimpleImputer` and `StandardScaler` were fit on the pooled dataset
-   (including test folds / test cohorts). They are now fit on training data
-   only. Expect slightly lower, more honest point estimates.
-2. **Subject-level rule**: the OSA-positive rule was "≥5 apnea minutes per
-   night"; it is now duration-normalized (≥5 apnea minutes per recorded
-   hour, an AHI≥5 analogue). Subject-level sensitivity/specificity numbers
-   will change.
-3. **Youden threshold optimism**: thresholds were previously optimized and
-   evaluated on the same 35 subjects. They are now selected
-   leave-one-subject-out. Subject-level accuracy will decrease.
-4. **DCA**: previously computed on a single fold; now pooled across all CV
-   folds with dispersion.
-5. **ECE**: the last calibration bin previously dropped predictions with
-   p = 1.0; corrected. ECE values may shift slightly.
+**Girsin (çekirdek):**
+- `table3_lodo_clustered.md` → "Tablo 1: Üç kohortta LODO performansı (hasta-kümeli %95 CI)"
+- `table5_holm_comparisons.md` → "Tablo 2: Holm düzeltmeli model karşılaştırmaları"
 
-If the journal requires a change log, report these as errata with old vs
-new values side by side (extend `metrics_errata_log.md`).
+**Tek cümlede özetlensin:**
+- `table1_development_cv` → "Development kohortunda hasta-bağımsız 5-fold CV'de tüm modeller benzer ROC-AUC gösterdi (Tablo S1)."
+- `table2_subject_level` → supplement'e (varsa) veya cümleyle
 
-## 3. Statistics section additions
+**Exploratory cümleyle geçilsin:**
+- `table4_paired_few_shot` → "Few-shot bağlam uyarlama, kümelenmiş CI'lar altında hiçbir kohortta anlamlı iyileşme göstermedi (tüm Δ ROC-AUC CI'ları sıfırı kapsıyor)."
 
-- Add the **Holm-corrected multi-comparison results**
-  (`lodo_multiple_comparison_holm.csv`): each model vs TabPFN zero-shot on
-  identical patient-clustered bootstrap resamples, within each cohort.
-- Keep the existing patient-clustered bootstrap CIs and the paired few-shot
-  delta CIs; report them explicitly as the primary uncertainty quantification.
-- State that no multiple-comparison correction was applied in the original
-  submission, and that the Holm-corrected analysis is now the primary one.
+Supplement yoksa tablo numaralarını buna göre kaydırın.
 
-## 4. Methods / reproducibility section additions
+## Doldurulacak yer tutucular
 
-- Reference the exact primary feature list (`configs/protocol.py`), the
-  fixed random seed, and the TabPFN checkpoint version/size.
-- Add the zero-leakage preprocessing statement: "imputation and feature
-  scaling were fit exclusively on training data within each
-  cross-validation fold / on source cohorts in each leave-one-database-out
-  fold".
-- State that SLPDB records sharing a subject prefix belong to one subject
-  (`SLPDB_SUBJECT_MAP`), and that subject isolation was verified by
-  assertion at runtime.
-- Add the TRIPOD+AI checklist mapping if the target journal requires it
-  (the DCA, calibration, and subject-level analyses already cover the
-  key items).
+`reproduce_all_results.sh` çalıştırıldıktan sonra:
+1. `results/manuscript_tables/table*.csv|md` içindeki gerçek sayılar
+2. Yöntem bölümü: 9 özniteliğin listesi (`configs/protocol.py::PRIMARY_FEATURES`)
+3. Kod erişim cümlesi: repo URL + "otomatik CI doğrulaması" ifadesi
 
-## 5. Submission checklist
+## Hedef dergiler (letter/short communication kabul eden)
 
-- [ ] Regenerate all numbers: `bash reproduce_all_results.sh`
-- [ ] Align `configs/protocol.py::PRIMARY_FEATURES` with the manuscript
-      feature table (the script now self-checks this against the data
-      schema and aborts on mismatch)
-- [ ] Update every table/figure with regenerated values
-- [ ] Rewrite claims per Section 1 (exploratory framing)
-- [ ] Add limitations text per Section 1
-- [ ] Add statistics additions per Section 3
-- [ ] Add methods additions per Section 4
-- [ ] Update `metrics_errata_log.md` with old-vs-new values if requested
-- [ ] Confirm the cover letter mentions the post-review analysis fixes
-      (leakage, subject-level rule, multiplicity correction)
+- Physiological Measurement (short communication) — profil birebir
+- Sleep and Breathing / Sleep Medicine (letter / short communication)
+- Journal of Clinical Monitoring and Computing (letter / technical note)
+- Chest / Annals of Thoracic Medicine (research letter, ~1200 kelime)
+
+## Gönderim öncesi kontrol listesi
+
+- [ ] Tüm sayıları yeniden üret: `bash reproduce_all_results.sh`
+- [ ] `configs/protocol.py::PRIMARY_FEATURES` veri şemasıyla doğrula
+  (script uyuşmazlıkta otomatik durur)
+- [ ] Letter taslağını `LETTER_DRAFT.md` iskeletinden yaz
+- [ ] Tabloları `results/manuscript_tables/` çıktısından seç
+- [ ] Dergi kelime/tablo limitlerine göre kırp
+- [ ] Cover letter'da: tek kanallı ECG'nin klinik değeri, veri erişilebilirliği,
+  istatistik sağlamlığı (küme CI + Holm) vurgusu
+- [ ] Daha önce desk-reject edilen dergiye gitmiyorsanız format değişikliğini
+  cover letter'da gerekçelendirme (yeni analiz + kapsam daraltma)
+
+## Geçmiş notlar
+
+Bu çalışmanın önceki tam makale versiyonunda tespit edilen ve düzeltilen
+teknik sorunların tam listesi (leakage, hasta-seviyesi kural, Youden
+optimizmi, ECE kenar durumu, ölü kod, çoklu karşılaştırma) analiz kodunda
+giderilmiştir; letter bu düzeltilmiş pipeline'ın çıktılarını kullanır.
+Olası eski-yeni değer karşılaştırmaları gerekirse `metrics_errata_log.md`
+uzatılabilir.
