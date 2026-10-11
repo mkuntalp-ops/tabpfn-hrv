@@ -1,11 +1,12 @@
 """
-Full Development Cohort Benchmark: TabPFN v2 vs Baselines (All 35 Apnea-ECG Records)
+Full Development Cohort Benchmark: TabPFN vs Baselines (All 35 Apnea-ECG Records)
 Evaluates:
 1. 5-Fold Patient-Independent GroupKFold Cross-Validation (TRIPOD+AI compliant)
 2. Segment-level discrimination (ROC-AUC, PR-AUC, Accuracy, F1)
 3. Calibration (Brier Score, Expected Calibration Error - ECE, Calibration Curves)
 4. Clinical Utility (Decision Curve Analysis - DCA Net Benefit)
-5. Subject-Level Diagnostic Classification (Apnea vs Normal per patient, Sensitivity, Specificity, AHI correlation)
+5. Subject-Level Diagnostic Classification (Apnea vs Normal per patient, Sensitivity, Specificity,
+   duration-normalized apnea burden correlation, LOSO-selected Youden thresholds)
 """
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -57,8 +58,8 @@ def run_full_study(
     feature_cols = [c for c in df.columns if c.startswith("HRV_") or c == "num_r_peaks"]
     df[feature_cols] = df[feature_cols].replace([np.inf, -np.inf], np.nan)
 
-    imputer = SimpleImputer(strategy="median")
-    X = imputer.fit_transform(df[feature_cols].values)
+    # ZERO LEAKAGE: imputation is fit inside each CV fold on the training split only
+    X = df[feature_cols].values
     y = df["apnea_label"].values.astype(int)
     groups = df["record_id"].values
 
@@ -82,6 +83,7 @@ def run_full_study(
     gkf_results = []
     dca_records = []
 
+    tabpfn_fold_failures = 0
     for fold, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups=groups), 1):
         test_records = sorted(list(np.unique(groups[test_idx])))
         print(f"\n--- Group Fold {fold}/{n_splits} (Train: {len(train_idx)}, Test: {len(test_idx)} | Test Patients: {test_records}) ---")
@@ -89,9 +91,12 @@ def run_full_study(
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
+        # ZERO LEAKAGE: imputer and scaler are fit on the training fold only
+        imputer = SimpleImputer(strategy="median")
+        X_train_imp = imputer.fit_transform(X_train)
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        X_train_scaled = scaler.fit_transform(X_train_imp)
+        X_test_scaled = scaler.transform(imputer.transform(X_test))
 
         # 1. Baseline models
         baselines = get_baseline_models()
@@ -108,10 +113,10 @@ def run_full_study(
             gkf_results.append(m)
             print(f"  {name:20s} | ROC-AUC: {m['ROC-AUC']:.4f} | PR-AUC: {m['PR-AUC']:.4f} | Brier: {m['BrierScore']:.4f} | ECE: {m['ECE']:.4f}")
 
-            if fold == 1:
-                df_dca = calculate_dca(y_test, probs)
-                df_dca["Model"] = name
-                dca_records.append(df_dca)
+            df_dca = calculate_dca(y_test, probs)
+            df_dca["Model"] = name
+            df_dca["Fold"] = fold
+            dca_records.append(df_dca)
 
         # 2. TabPFN Foundation Model
         try:
@@ -130,12 +135,17 @@ def run_full_study(
             gkf_results.append(t_m)
             print(f"  {'TabPFN':20s} | ROC-AUC: {t_m['ROC-AUC']:.4f} | PR-AUC: {t_m['PR-AUC']:.4f} | Brier: {t_m['BrierScore']:.4f} | ECE: {t_m['ECE']:.4f}")
 
-            if fold == 1:
-                df_dca = calculate_dca(y_test, t_probs)
-                df_dca["Model"] = "TabPFN"
-                dca_records.append(df_dca)
+            df_dca = calculate_dca(y_test, t_probs)
+            df_dca["Model"] = "TabPFN"
+            df_dca["Fold"] = fold
+            dca_records.append(df_dca)
         except Exception as e:
+            tabpfn_fold_failures += 1
             print(f"[-] TabPFN fold {fold} error: {e}")
+
+    if tabpfn_fold_failures > 0:
+        print(f"[!] WARNING: TabPFN failed in {tabpfn_fold_failures}/{n_splits} folds; "
+              f"its summary metrics are computed on {n_splits - tabpfn_fold_failures} folds only.")
 
     # Save raw fold metrics & summary
     results_df = pd.DataFrame(gkf_results)
@@ -160,51 +170,65 @@ def run_full_study(
     # 2. Subject-Level Diagnostic Classification (AHI / Total Apnea)
     # ==============================================================
     print("\n" + "="*65)
-    print("SUBJECT-LEVEL DIAGNOSTIC CLASSIFICATION (35 PATIENTS):")
+    print(f"SUBJECT-LEVEL DIAGNOSTIC CLASSIFICATION ({len(patient_ids)} PATIENTS):")
     print("="*65)
 
     subject_rows = []
     patient_ids = df["record_id"].unique()
 
+    # Recording duration per subject (hours) for AHI-style definitions
+    subject_hours = df.groupby("record_id")["minute_idx"].max() + 1
+    subject_hours = (subject_hours / 60.0).to_dict()
+
     for pid in patient_ids:
         pdf = oof_df[oof_df["record_id"] == pid]
         true_apnea_min = (pdf["apnea_label"] == 1).sum()
         total_min = len(pdf)
-        # Clinical threshold: >= 5 minutes of apnea during the night is OSA positive
-        true_class = 1 if true_apnea_min >= 5 else 0
+        # Clinical rule: OSA positive if average apnea burden >= 5 minutes per
+        # recorded hour (AHI >= 5 equivalent, duration-normalized)
+        rec_hours = max(subject_hours.get(pid, total_min / 60.0), 1e-9)
+        true_class = 1 if (true_apnea_min / rec_hours) >= 5.0 else 0
 
         row = {
             "record_id": pid,
             "total_minutes": total_min,
             "true_apnea_minutes": true_apnea_min,
+            "true_apnea_minutes_per_hour": true_apnea_min / rec_hours,
+            "recording_hours": rec_hours,
             "true_subject_class": true_class,
         }
 
-        # To correctly compute Youden threshold, we collect all OOF patient probabilities first
+        # Duration-normalized predicted apnea burden (apnea minutes per hour)
         for m in all_models:
             pred_apnea_min = (pdf[f"prob_{m}"] >= 0.5).sum()
             total_min = len(pdf)
-            patient_pred_prob = pred_apnea_min / total_min if total_min > 0 else 0
-            row[f"{m}_pred_prob"] = patient_pred_prob
+            patient_pred_prob = (pred_apnea_min / rec_hours) if rec_hours > 0 else 0
+            row[f"{m}_pred_burden"] = patient_pred_prob
             row[f"{m}_pred_apnea_min"] = pred_apnea_min
 
         subject_rows.append(row)
 
     subj_df = pd.DataFrame(subject_rows)
-    
-    # Calculate Youden index threshold for each model
+
+    # Leave-one-subject-out Youden threshold selection: each subject is classified
+    # with a threshold optimized on all OTHER subjects (no optimistic self-tuning).
+    from sklearn.metrics import roc_curve
+    from models.train_and_evaluate import select_youden_threshold
+
+    n_subj = len(subj_df)
     for m in all_models:
         y_true_s = subj_df["true_subject_class"].values
-        y_prob_s = subj_df[f"{m}_pred_prob"].values
-        
-        # Calculate ROC curve to find optimal Youden threshold
-        from sklearn.metrics import roc_curve
-        fpr, tpr, thresholds = roc_curve(y_true_s, y_prob_s)
-        youden_idx = np.argmax(tpr - fpr)
-        opt_thresh = thresholds[youden_idx]
-        
-        subj_df[f"{m}_opt_thresh"] = opt_thresh
-        subj_df[f"{m}_pred_class"] = (y_prob_s >= opt_thresh).astype(int)
+        y_burden_s = subj_df[f"{m}_pred_burden"].values
+        subj_df[f"{m}_pred_class"] = 0
+        for i in range(n_subj):
+            rest = np.arange(n_subj) != i
+            if len(np.unique(y_true_s[rest])) < 2:
+                opt_thresh = 5.0  # fall back to the clinical AHI>=5 rule
+            else:
+                opt_thresh = select_youden_threshold(y_true_s[rest], y_burden_s[rest])
+            subj_df.loc[subj_df.index[i], f"{m}_opt_thresh"] = opt_thresh
+            subj_df.loc[subj_df.index[i], f"{m}_pred_class"] = int(y_burden_s[i] >= opt_thresh)
+        subj_df[f"{m}_pred_class"] = subj_df[f"{m}_pred_class"].astype(int)
 
     subj_df.to_csv(out_dir / "subject_level_predictions.csv", index=False)
 
@@ -214,6 +238,8 @@ def run_full_study(
         y_pred_s = subj_df[f"{m}_pred_class"].values
         pred_mins = subj_df[f"{m}_pred_apnea_min"].values
         true_mins = subj_df["true_apnea_minutes"].values
+        # also report duration-normalized burden correlation
+        r_burden, _ = pearsonr(subj_df["true_apnea_minutes_per_hour"].values, subj_df[f"{m}_pred_burden"].values)
 
         tp = np.sum((y_true_s == 1) & (y_pred_s == 1))
         tn = np.sum((y_true_s == 0) & (y_pred_s == 0))
@@ -231,6 +257,7 @@ def run_full_study(
             "Subject_Sensitivity": sens,
             "Subject_Specificity": spec,
             "Pearson_r_Apnea_Minutes": r_corr,
+            "Pearson_r_Apnea_Burden_per_Hour": r_burden,
             "TP": tp,
             "TN": tn,
             "FP": fp,
@@ -262,8 +289,9 @@ def run_full_study(
     # B. Decision Curve Analysis (DCA)
     if dca_records:
         all_dca = pd.concat(dca_records, ignore_index=True)
+        all_dca.to_csv(out_dir / "dca_net_benefit_all_folds.csv", index=False)
         plt.figure(figsize=(8, 6))
-        sns.lineplot(data=all_dca, x="threshold", y="net_benefit_model", hue="Model", lw=2)
+        sns.lineplot(data=all_dca, x="threshold", y="net_benefit_model", hue="Model", lw=2, errorbar="sd")
         ref_all = all_dca[all_dca["Model"] == "TabPFN"][["threshold", "net_benefit_all"]]
         plt.plot(ref_all["threshold"], ref_all["net_benefit_all"], label="Treat All", color="gray", linestyle="--")
         plt.axhline(0, label="Treat None", color="black", linestyle=":")

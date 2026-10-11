@@ -218,3 +218,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Study data and results (not redistributed; regenerate locally)
+data/
+results/
+
+# TabPFN model checkpoints (large binary weights, not redistributed)
+*.ckpt
+*.pt
+*.pth
+models/tabpfn_v3_checkpoint.ckpt

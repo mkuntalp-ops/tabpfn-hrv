@@ -1,6 +1,6 @@
 """
 Three-Center Leave-One-Database-Out (LODO) Multi-Cohort Benchmark
-Evaluates TabPFN v2 vs Baselines across three international clinical sleep cohorts:
+Evaluates TabPFN vs Baselines across three international clinical sleep cohorts:
 1. Center 1: PhysioNet Apnea-ECG (Philipps University Marburg, Germany; 100 Hz single-lead ECG)
 2. Center 2: MIT-BIH Polysomnographic Database (slpdb, Beth Israel Hospital, Boston; 250 Hz multi-lead ECG)
 3. Center 3: UCD Sleep Apnea Database (ucddb, St. Vincent's University Hospital Dublin; 128 Hz multi-channel PSG ECG)
@@ -79,8 +79,8 @@ def run_three_center_lodo(
     combined_df = pd.concat([df_apnea, df_slpdb, df_ucddb], ignore_index=True)
     combined_df[feature_cols] = combined_df[feature_cols].replace([np.inf, -np.inf], np.nan)
 
-    imputer = SimpleImputer(strategy="median")
-    X_all = imputer.fit_transform(combined_df[feature_cols].values)
+    # ZERO LEAKAGE: imputation is deferred to each fold and fit on source cohorts only
+    X_all = combined_df[feature_cols].values
     y_all = combined_df["apnea_label"].values.astype(int)
     cohort_labels = combined_df["cohort"].values
     patient_records = combined_df["record_id"].values
@@ -114,9 +114,12 @@ def run_three_center_lodo(
         X_train, y_train = X_all[train_mask], y_all[train_mask]
         X_test, y_test = X_all[test_mask], y_all[test_mask]
 
+        # ZERO LEAKAGE: imputer and scaler are fit on the source (train) cohorts only
+        imputer = SimpleImputer(strategy="median")
+        X_train_imp = imputer.fit_transform(X_train)
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        X_train_scaled = scaler.fit_transform(X_train_imp)
+        X_test_scaled = scaler.transform(imputer.transform(X_test))
 
         train_cohort_names = [c for c in cohort_names if c != test_name]
         print(f"\n--- LODO Fold: Test on [{test_name}] ({len(X_test)} samples) | Train on {train_cohort_names} ({len(X_train)} samples) ---")
@@ -201,9 +204,7 @@ def run_three_center_lodo(
     lodo_df = pd.DataFrame(lodo_results)
     lodo_df.to_csv(out_dir / "three_center_lodo_metrics.csv", index=False)
     print(f"\n[+] Saved 3-Center LODO metrics to: {out_dir / 'three_center_lodo_metrics.csv'}")
-    
-    return
-    
+
     # ==============================================================
     # 2. Pairwise Cross-Database Transfer Matrix (3x3)
     # ==============================================================
@@ -225,9 +226,12 @@ def run_three_center_lodo(
             X_src, y_src = X_all[src_mask], y_all[src_mask]
             X_tgt, y_tgt = X_all[tgt_mask], y_all[tgt_mask]
 
+            # ZERO LEAKAGE: fit on source only
+            pair_imputer = SimpleImputer(strategy="median")
+            X_src_imp = pair_imputer.fit_transform(X_src)
             scaler = StandardScaler()
-            X_src_scaled = scaler.fit_transform(X_src)
-            X_tgt_scaled = scaler.transform(X_tgt)
+            X_src_scaled = scaler.fit_transform(X_src_imp)
+            X_tgt_scaled = scaler.transform(pair_imputer.transform(X_tgt))
 
             # TabPFN
             try:
@@ -247,21 +251,22 @@ def run_three_center_lodo(
             except Exception as e:
                 print(f"[-] Pairwise TabPFN error {src_name}->{tgt_name}: {e}")
 
-            # LightGBM
-            try:
-                clf_lgb = get_baseline_models()["LightGBM"]
-                clf_lgb.fit(X_src_scaled, y_src)
-                p_lgb = clf_lgb.predict_proba(X_tgt_scaled)[:, 1]
-                m_lgb = evaluate_predictions(y_tgt, p_lgb)
-                pairwise_results.append({
-                    "Source": src_name,
-                    "Target": tgt_name,
-                    "Model": "LightGBM",
-                    "ROC-AUC": m_lgb["ROC-AUC"],
-                    "BrierScore": m_lgb["BrierScore"]
-                })
-            except Exception as e:
-                print(f"[-] Pairwise LightGBM error {src_name}->{tgt_name}: {e}")
+            # LightGBM and RandomForest
+            for b_name in ["LightGBM", "RandomForest"]:
+                try:
+                    clf_b = get_baseline_models()[b_name]
+                    clf_b.fit(X_src_scaled, y_src)
+                    p_b = clf_b.predict_proba(X_tgt_scaled)[:, 1]
+                    m_b = evaluate_predictions(y_tgt, p_b)
+                    pairwise_results.append({
+                        "Source": src_name,
+                        "Target": tgt_name,
+                        "Model": b_name,
+                        "ROC-AUC": m_b["ROC-AUC"],
+                        "BrierScore": m_b["BrierScore"]
+                    })
+                except Exception as e:
+                    print(f"[-] Pairwise {b_name} error {src_name}->{tgt_name}: {e}")
 
     pairwise_df = pd.DataFrame(pairwise_results)
     pairwise_df.to_csv(out_dir / "pairwise_transfer_matrix.csv", index=False)
@@ -303,7 +308,9 @@ def run_three_center_lodo(
 
     # C. In-Context Few-Shot Adaptation Curve across Hospitals
     fs_df = lodo_df[lodo_df["Paradigm"].str.contains("Few-Shot|Zero-Shot") & (lodo_df["Model"].str.contains("TabPFN"))]
-    order = ["Zero-Shot LODO", "Strict Patient-Independent Few-Shot (N=50)", "Strict Patient-Independent Few-Shot (N=100)"]
+    paradigm_order = ["Zero-Shot LODO", "Strict Patient-Independent Few-Shot (N=50)", "Strict Patient-Independent Few-Shot (N=100)"]
+    fs_df = fs_df.copy()
+    fs_df["Paradigm"] = pd.Categorical(fs_df["Paradigm"], categories=paradigm_order, ordered=True)
     sns.lineplot(data=fs_df, x="Paradigm", y="ROC-AUC", hue="Target_Cohort", marker="o", lw=2.5, markersize=8)
     plt.title("TabPFN In-Context Few-Shot Hospital Adaptation", fontsize=13, fontweight="bold")
     plt.xlabel("Adaptation Paradigm", fontsize=12)

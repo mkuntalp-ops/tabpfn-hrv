@@ -4,7 +4,7 @@ Tri-Center LODO Benchmark with Full Raw Predictions Export and Patient-Clustered
 
 Conditions strictly locked:
 - Strict 9 primary features.
-- Local TabPFN v3 checkpoint (212,804,803 bytes).
+- Local TabPFN checkpoint (212,804,803 bytes), version pinned via configs/protocol.py.
 - Deterministic seed & baseline hyperparameters.
 - Exact calibration context keys verification via assertions against previous provenance log.
 - Saves raw epoch-level probabilities for all zero-shot and few-shot models to:
@@ -61,6 +61,7 @@ def run():
     out_old_cmp_csv = run_dir / "metrics/old_vs_new_point_estimates_comparison.csv"
     out_clustered_csv = run_dir / "metrics/lodo_patient_clustered_metrics.csv"
     out_paired_diff_csv = run_dir / "metrics/lodo_paired_differences.csv"
+    out_mc_csv = run_dir / "metrics/lodo_multiple_comparison_holm.csv"
     out_boot_manifest = run_dir / "data/lodo_bootstrap_resamples_manifest.json"
 
     # Reference old provenance
@@ -88,6 +89,16 @@ def run():
         cohort_dfs = {}
         for name, p in DATA_PATHS.items():
             df_c = pd.read_parquet(p)
+            missing_feats = [f for f in PRIMARY_FEATURES if f not in df_c.columns]
+            if missing_feats:
+                available = [c for c in df_c.columns if c.startswith("HRV_") or c == "num_r_peaks"]
+                log_print(f"[!] PRIMARY_FEATURES mismatch in {name}: missing {missing_feats}")
+                log_print(f"    Available candidate features in {name}: {available}")
+                raise AssertionError(
+                    f"PRIMARY_FEATURES in configs/protocol.py is not aligned with the data schema of {name}. "
+                    f"Missing: {missing_feats}. Update configs/protocol.py::PRIMARY_FEATURES to match "
+                    f"the feature set of the run that produced the reference outputs."
+                )
             if "subject_id" not in df_c.columns:
                 if name == "SLPDB":
                     df_c["subject_id"] = df_c["record_id"].map(SLPDB_SUBJECT_MAP)
@@ -328,6 +339,7 @@ def run():
 
         clustered_metrics_records = []
         paired_diff_records = []
+        mc_paired_records = []
         manifest_records = []
 
         # Target definitions for bootstrap
@@ -396,14 +408,14 @@ def run():
                         "N_Test_Subjects": len(unique_subjects),
                         "N_Test_Epochs": len(y_t),
                         "Original_ROC_AUC": auc_pt,
-                        "Clustered_ROC_AUC_CI_lower": "UNESTIMABLE",
-                        "Clustered_ROC_AUC_CI_upper": "UNESTIMABLE",
+                        "Clustered_ROC_AUC_CI_lower": np.nan,
+                        "Clustered_ROC_AUC_CI_upper": np.nan,
                         "Original_PR_AUC": pr_pt,
-                        "Clustered_PR_AUC_CI_lower": "UNESTIMABLE",
-                        "Clustered_PR_AUC_CI_upper": "UNESTIMABLE",
+                        "Clustered_PR_AUC_CI_lower": np.nan,
+                        "Clustered_PR_AUC_CI_upper": np.nan,
                         "Original_Brier_Score": br_pt,
-                        "Clustered_Brier_CI_lower": "UNESTIMABLE",
-                        "Clustered_Brier_CI_upper": "UNESTIMABLE",
+                        "Clustered_Brier_CI_lower": np.nan,
+                        "Clustered_Brier_CI_upper": np.nan,
                         "Bootstrap_Valid_Iterations": 0,
                         "Bootstrap_Invalid_Iterations": 0,
                         "Uncertainty_Status": "Inter-subject CI unestimable (N=1 test subject)"
@@ -420,20 +432,20 @@ def run():
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Context_N']==fs_n), 'New_ROC_AUC'].values[0] -
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Model']=='TabPFN')&(cmp_df['Context_N']==0)&(cmp_df['Evaluation_Scope']=='Common Held-Out Eval Subset'), 'New_ROC_AUC'].values[0]
                         ),
-                        "Clustered_Delta_ROC_AUC_CI_lower": "UNESTIMABLE",
-                        "Clustered_Delta_ROC_AUC_CI_upper": "UNESTIMABLE",
+                        "Clustered_Delta_ROC_AUC_CI_lower": np.nan,
+                        "Clustered_Delta_ROC_AUC_CI_upper": np.nan,
                         "Original_Delta_PR_AUC": float(
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Context_N']==fs_n), 'New_PR_AUC'].values[0] -
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Model']=='TabPFN')&(cmp_df['Context_N']==0)&(cmp_df['Evaluation_Scope']=='Common Held-Out Eval Subset'), 'New_PR_AUC'].values[0]
                         ),
-                        "Clustered_Delta_PR_AUC_CI_lower": "UNESTIMABLE",
-                        "Clustered_Delta_PR_AUC_CI_upper": "UNESTIMABLE",
+                        "Clustered_Delta_PR_AUC_CI_lower": np.nan,
+                        "Clustered_Delta_PR_AUC_CI_upper": np.nan,
                         "Original_Delta_Brier": float(
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Context_N']==fs_n), 'New_Brier'].values[0] -
                             cmp_df.loc[(cmp_df['Target_Cohort']==tgt)&(cmp_df['Model']=='TabPFN')&(cmp_df['Context_N']==0)&(cmp_df['Evaluation_Scope']=='Common Held-Out Eval Subset'), 'New_Brier'].values[0]
                         ),
-                        "Clustered_Delta_Brier_CI_lower": "UNESTIMABLE",
-                        "Clustered_Delta_Brier_CI_upper": "UNESTIMABLE",
+                        "Clustered_Delta_Brier_CI_lower": np.nan,
+                        "Clustered_Delta_Brier_CI_upper": np.nan,
                         "Uncertainty_Status": "Inter-subject CI unestimable (N=1 test subject)"
                     })
                 continue
@@ -631,15 +643,65 @@ def run():
                 })
                 log_print(f"  PAIRED DELTA (N={fs_n:3d}) | ΔAUC: {pt_delta_auc:+.4f} [{ci_d_auc[0]:+.4f} to {ci_d_auc[1]:+.4f}] | ΔPR: {pt_delta_pr:+.4f} [{ci_d_pr[0]:+.4f} to {ci_d_pr[1]:+.4f}] | ΔBr: {pt_delta_br:+.4f} [{ci_d_br[0]:+.4f} to {ci_d_br[1]:+.4f}]")
 
+            # Multi-comparison test: each model vs TabPFN zero-shot on identical
+            # patient-clustered bootstrap resamples, Holm-corrected.
+            zs_key = ("zero_shot", "TabPFN", 0)
+            zs_auc_dist = boot_metrics[zs_key]["auc"]
+            if len(zs_auc_dist) > 0:
+                zs_sub = sub_target_df[
+                    (sub_target_df["condition"] == "zero_shot") &
+                    (sub_target_df["model"] == "TabPFN")
+                ]
+                zs_point_auc = roc_auc_score(zs_sub["y_true"].values, zs_sub["y_prob"].values)
+                comp_records = []
+                for cond_key in models_to_track:
+                    c_type, m_name, c_n = cond_key
+                    if cond_key == zs_key:
+                        continue
+                    m_dist = boot_metrics[cond_key]["auc"]
+                    if len(m_dist) != len(zs_auc_dist) or len(m_dist) == 0:
+                        continue
+                    deltas = np.array(zs_auc_dist) - np.array(m_dist)
+                    p_raw = 2.0 * min(np.mean(deltas > 0), np.mean(deltas < 0))
+                    p_raw = min(max(p_raw, 1.0 / max(len(deltas), 1)), 1.0)
+                    sub_orig_m = sub_target_df[
+                        (sub_target_df["condition"] == c_type) &
+                        (sub_target_df["model"] == m_name) &
+                        (sub_target_df["context_n"] == c_n)
+                    ]
+                    delta_point = zs_point_auc - roc_auc_score(
+                        sub_orig_m["y_true"].values, sub_orig_m["y_prob"].values
+                    )
+                    comp_records.append({
+                        "Model": f"{m_name} (N={c_n})" if c_n > 0 else m_name,
+                        "TabPFN_minus_Model_ROC_AUC": delta_point,
+                        "p_raw": p_raw,
+                    })
+                comp_records.sort(key=lambda r: r["p_raw"])
+                m_tests = len(comp_records)
+                running_max = 0.0
+                for rank, rec in enumerate(comp_records):
+                    # Holm step-down: p-values are enforced non-decreasing
+                    running_max = max(running_max, min(1.0, (m_tests - rank) * rec["p_raw"]))
+                    rec["p_holm"] = running_max
+                    rec["significant_at_0.05"] = bool(rec["p_holm"] < 0.05)
+                    rec["Target_Cohort"] = tgt
+                    rec["N_Test_Subjects"] = len(unique_subjects)
+                    rec["N_Bootstrap_Paired_Resamples"] = len(zs_auc_dist)
+                    mc_paired_records.append(rec)
+                    log_print(f"  MC {rec['Model']:22s} | TabPFN-Model dAUC: {rec['TabPFN_minus_Model_ROC_AUC']:+.4f} | p_holm: {rec['p_holm']:.3f} | sig: {rec['significant_at_0.05']}")
+
         # Save all metrics
         pd.DataFrame(clustered_metrics_records).to_csv(out_clustered_csv, index=False)
         pd.DataFrame(paired_diff_records).to_csv(out_paired_diff_csv, index=False)
+        pd.DataFrame(mc_paired_records).to_csv(out_mc_csv, index=False)
         with open(out_boot_manifest, "w") as f:
             json.dump(manifest_records, f, indent=2)
 
         log_print(f"\n[✓] All outputs saved successfully!")
         log_print(f"  - Metrics: {out_clustered_csv}")
         log_print(f"  - Paired Differences: {out_paired_diff_csv}")
+        log_print(f"  - Multiple Comparison (Holm): {out_mc_csv}")
         log_print(f"  - Bootstrap Manifest: {out_boot_manifest}")
 
 if __name__ == "__main__":
