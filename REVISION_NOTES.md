@@ -55,6 +55,9 @@ Supplement yoksa tablo numaralarını buna göre kaydırın.
 `reproduce_all_results.sh` çalıştırıldıktan sonra:
 1. `results/manuscript_tables/table*.csv|md` içindeki gerçek sayılar
 2. Yöntem bölümü: 9 özniteliğin listesi (`configs/protocol.py::PRIMARY_FEATURES`)
+   ve öznitelik çıkarım parametreleri (R-peak: NeuroKit2 pantompkins; RR
+   temizliği: 0.3-2.0 s + %20 ektopi filtresi; frekans bantları: Task
+   Force 1996; epoch: 60 s)
 3. Kod erişim cümlesi: repo URL + "otomatik CI doğrulaması" ifadesi
 
 ## Hedef dergiler (letter/short communication kabul eden)
@@ -66,6 +69,7 @@ Supplement yoksa tablo numaralarını buna göre kaydırın.
 
 ## Gönderim öncesi kontrol listesi
 
+- [ ] Öznitelikleri üret: `bash download_and_extract_features.sh`
 - [ ] Tüm sayıları yeniden üret: `bash reproduce_all_results.sh`
 - [ ] `configs/protocol.py::PRIMARY_FEATURES` veri şemasıyla doğrula
   (script uyuşmazlıkta otomatik durur)
