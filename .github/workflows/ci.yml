@@ -35,7 +35,9 @@ jobs:
             src/models/train_and_evaluate.py \
             evaluation/clinical_metrics.py \
             configs/protocol.py \
-            generate_manuscript_tables.py
+            generate_manuscript_tables.py \
+            src/features/hrv_extraction.py \
+            tests/test_feature_extraction.py
 
       - name: Import modules and validate metric edge cases
         run: |
@@ -100,6 +102,9 @@ jobs:
           assert all(p <= 1.0 for p in holm([0.001, 0.002, 0.02, 0.5]))
           print("CI_HOLM_LOGIC_OK")
           EOF
+
+      - name: Feature extraction unit tests
+        run: python tests/test_feature_extraction.py
 
       - name: Manuscript table generator smoke test (missing inputs path)
         run: python generate_manuscript_tables.py --results-root /tmp/does-not-exist --out-dir /tmp/mtables

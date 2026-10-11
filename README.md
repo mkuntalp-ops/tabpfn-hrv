@@ -75,7 +75,8 @@ licenses, access conditions, and citation requirements. Users must obtain the
 original datasets directly from the source providers and comply with all applicable
 terms.
 
-Expected processed inputs (per-epoch HRV features with `record_id`, `apnea_label`):
+Expected processed inputs (per-epoch HRV features with `record_id`, `apnea_label`) are
+produced by the included feature-extraction pipeline:
 
 ```
 data/processed/hrv_features_apnea_ecg_full.parquet
@@ -83,9 +84,22 @@ data/processed/hrv_features_slpdb.parquet
 data/processed/hrv_features_ucddb.parquet
 ```
 
-The exact HRV feature extraction pipeline (R-peak detection, artifact filtering,
-feature definitions) must be documented in the manuscript methods; features used by
-the tri-center run are listed in `configs/protocol.py::PRIMARY_FEATURES`.
+To produce them from scratch:
+
+```bash
+bash download_and_extract_features.sh   # downloads PhysioNet records + extracts HRV features
+```
+
+Feature extraction (`src/features/hrv_extraction.py`): 60 s epochs; R-peak detection via
+NeuroKit2 (pantompkins method, configurable); RR cleaning (0.3–2.0 s plausibility +
+20%-deviation ectopic filter); time-domain features (MeanNN, SDNN, RMSSD, pNN50, TINN)
+and FFT-based frequency-domain features (LF 0.04–0.15 Hz, HF 0.15–0.4 Hz, Task Force
+1996 bands) over 4 Hz-interpolated RR series. Epochs with fewer than 5 clean RR
+intervals yield NaN features (imputed downstream, fit on training data only).
+Unit tests: `tests/test_feature_extraction.py` (also run in CI).
+
+Features used by the tri-center run are listed in
+`configs/protocol.py::PRIMARY_FEATURES`.
 
 ## Interpreting results (framing for the manuscript)
 

@@ -9,3 +9,6 @@ tabpfn>=2.0
 lightgbm>=4.0
 xgboost>=2.0
 pyarrow>=14.0
+wfdb>=4.1
+neurokit2>=0.2
+tabulate>=0.9
